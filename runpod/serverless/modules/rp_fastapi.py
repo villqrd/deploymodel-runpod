@@ -24,35 +24,21 @@ import pydantic
 
 RUNPOD_ENDPOINT_ID = os.environ.get("RUNPOD_ENDPOINT_ID", None)
 
-TITLE = "RunPod | Development Worker API"
 
-DESCRIPTION = """
-The Development Worker API facilitates testing and debugging of your RunPod workers.
-It offers a sandbox environment for executing code and simulating interactions with your worker, ensuring your applications can seamlessly transition to production on RunPod serverless platform.
-Use this API for comprehensive testing of request submissions and result retrieval, mimicking the behavior of RunPod's operational environment.
----
-*Note: This API serves as a local testing tool and will not be utilized once your worker is operational on the RunPod platform.*
-"""
+DESCRIPTION = """"""
 
 # Add CLI tool suggestion if RUNPOD_PROJECT_ID is not set.
-if os.environ.get("RUNPOD_PROJECT_ID", None) is None:
-    DESCRIPTION += """
+# if os.environ.get("RUNPOD_PROJECT_ID", None) is None:
+#     DESCRIPTION += """
 
-    ℹ️ | Consider developing with our CLI tool to streamline your worker development process.
+#     ℹ️ | Consider developing with our CLI tool to streamline your worker development process.
 
-    >_  wget -qO- cli.runpod.net | sudo bash
-    >_  runpodctl project create
-    """
+#     >_  wget -qO- cli.runpod.net | sudo bash
+#     >_  runpodctl project create
+#     """
 
 RUN_DESCRIPTION = """
 Initiates processing jobs, returning a unique job ID.
-
-**Parameters:**
-- **input** (string): The data to be processed by the worker. This could be a string, JSON object, etc., depending on the worker's requirements.
-- **webhook** (string, optional): A callback URL for result notification upon completion. If specified, the server will send a POST request to this URL with the job's result once it's available.
-
-**Returns:**
-- **job_id** (string): A unique identifier for the job, used with the `/stream` and `/status` endpoints for monitoring progress and checking job status.
 """
 
 RUNSYNC_DESCRIPTION = """
@@ -61,13 +47,6 @@ Executes processing jobs synchronously, returning the job's output directly.
 This endpoint is ideal for tasks where immediate result retrieval is necessary,
 streamlining the execution process by eliminating the need for subsequent
 status or result checks.
-
-**Parameters:**
-- **input** (string): The data to be processed by the worker. This should be in a format that the worker can understand (e.g., JSON, text, etc.).
-- **webhook** (string, optional): A callback URL to which the result will be posted. While direct result retrieval is the primary operation mode for this endpoint, specifying a webhook allows for asynchronous result notification if needed.
-
-**Returns:**
-- **output** (Any): The direct output from the processing job, formatted according to the job's nature and the expected response structure. This could be a JSON object, plain text, or any data structure depending on the processing logic.
 """
 
 STREAM_DESCRIPTION = """
@@ -86,17 +65,8 @@ STATUS_DESCRIPTION = """
 Checks the completion status of a processing job and returns its output if the job is complete.
 
 This endpoint is invaluable for monitoring the progress of a job and obtaining the output only after the job has fully completed. It simplifies the process of querying job completion and retrieving results, eliminating the need for continuous polling or result aggregation.
-
-**Parameters:**
-- **job_id** (string): The unique identifier for the job being queried. This ID is used to track and assess the status of the job.
-
-**Returns:**
-- **status** (string): The completion status of the job, typically 'complete' or 'in progress'. This status indicates whether the job has finished processing and if the output is ready for retrieval.
-- **output** (Any, optional): The final output of the job, provided if the job is complete. The format and structure of the output depend on the job's nature and the data processing involved.
-
-**Note:** The availability of the `output` field is contingent on the job's completion status. If the job is still in progress, this field may be omitted or contain partial results, depending on the implementation.
 """
-
+# **Note:** The availability of the `output` field is contingent on the job's completion status. If the job is still in progress, this field may be omitted or contain partial results, depending on the implementation.
 
 # ------------------------------ Initializations ----------------------------- #
 job_list = Jobs()
@@ -151,6 +121,7 @@ class StreamOutput:
     stream: Optional[Union[dict, list, str, int, float, bool]] = None
     error: Optional[str] = None
 
+
 class BaseResponse(pydantic.BaseModel):
     id: str
     status: str
@@ -179,18 +150,24 @@ def _send_webhook(url: str, payload: Dict[str, Any]) -> bool:
 
 
 def get_input_model(handler):
-    input_model = handler.__annotations__.get('input')
+    input_model = handler.__annotations__.get("input")
     if not input_model:
-        raise ValueError(f"Handler {handler.__name__} must have an input type annotation")
+        raise ValueError(
+            f"Handler {handler.__name__} must have an input type annotation"
+        )
     return input_model
 
+
 def get_response_model(handler):
-    response_model = handler.__annotations__.get('return')
+    response_model = handler.__annotations__.get("return")
     if not response_model:
-        raise ValueError(f"Handler {handler.__name__} must have a return type annotation")
+        raise ValueError(
+            f"Handler {handler.__name__} must have a return type annotation"
+        )
     # if not issubclass(response_model, BaseModel):
     #     raise ValueError(f"Handler {handler.__name__} return type must be a deploymodel BaseModel. got {response_model}")
     return response_model
+
 
 # ---------------------------------------------------------------------------- #
 #                                  API Worker                                  #
@@ -210,28 +187,20 @@ class WorkerAPI:
 
         self.config = config
 
-        tags_metadata = [
-            {
-                "name": "Synchronously Submit Request & Get Job Results",
-                "description": "Endpoints for submitting job requests and getting the results.",
-            },
-            {
-                "name": "Submit Job Requests",
-                "description": "Endpoints for submitting job requests.",
-            },
-            {
-                "name": "Check Job Results",
-                "description": "Endpoints for checking the status of a job and getting the results.",
-            },
-        ]
-
+        root_path = os.environ.get("DEPLOYMODEL_API_ROOT")
+        if not root_path:
+            raise ValueError("DEPLOYMODEL_API_ROOT environment variable is not set")
         # Initialize the FastAPI web server.
+
+        model_title = os.environ.get(
+            "DEPLOYMODEL_MODEL_TITLE", "<DEPLOYMODEL_MODEL_TITLE>"
+        )
         self.rp_app = FastAPI(
-            title=TITLE,
+            title=f"{model_title} | DeployModel",
             description=DESCRIPTION,
             version=runpod_version,
             docs_url="/",
-            openapi_tags=tags_metadata,
+            root_path=root_path,
         )
 
         # Create an APIRouter and add the route for processing jobs.
@@ -255,10 +224,12 @@ class WorkerAPI:
             return handler(job["input"])
 
         from pydantic import Field
+
         self.config["handler"] = handler_wrapper
         response_model = get_response_model(handler)
-        response_model = pydantic.create_model("ResponseModel", 
-                                               output=(response_model, Field(...)), __base__=BaseResponse)
+        response_model = pydantic.create_model(
+            "ResponseModel", output=(response_model, Field(...)), __base__=BaseResponse
+        )
 
         async def _sim_run_wrapper(input: input_model = Depends()):
             job_request = DefaultRequest(input=input)
@@ -270,9 +241,8 @@ class WorkerAPI:
             _sim_run_wrapper,
             methods=["POST"],
             response_model_exclude_none=True,
-            summary="Mimics the behavior of the run endpoint.",
-            description=RUN_DESCRIPTION,
-            tags=["Submit Job Requests"],
+            summary="Run job asynchronously.",
+            # description=RUN_DESCRIPTION,
         )
 
         async def _sim_runsync_wrapper(input: input_model = Depends()):
@@ -285,9 +255,8 @@ class WorkerAPI:
             methods=["POST"],
             response_model=response_model,
             response_model_exclude_none=True,
-            summary="Mimics the behavior of the runsync endpoint.",
-            description=RUNSYNC_DESCRIPTION,
-            tags=["Synchronously Submit Request & Get Job Results"],
+            summary="Run job synchronously.",
+            # description=RUNSYNC_DESCRIPTION,
         )
 
         # async def _sim_stream_wrapper(input: input_model = Depends()):
@@ -306,12 +275,11 @@ class WorkerAPI:
         api_router.add_api_route(
             "/status/{job_id}",
             self._sim_status,
-            methods=["POST"],
+            methods=["GET"],
             response_model_exclude_none=True,
             response_model=response_model,
-            summary="Mimics the behavior of the status endpoint.",
+            summary="Checks status of job.",
             description=STATUS_DESCRIPTION,
-            tags=["Check Job Results"],
         )
 
         # Include the APIRouter in the FastAPI application.
